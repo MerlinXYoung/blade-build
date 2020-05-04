@@ -6,8 +6,8 @@
 
 
 """
- This is the cu_target module which is the super class
- of all of the scons cu targets, like cu_library, cu_binary.
+This module defines cu_library, cu_binary and cu_test rules
+for cuda development.
 
 """
 
@@ -15,20 +15,19 @@ from __future__ import absolute_import
 
 import os
 
-from blade import build_rules
 from blade import build_manager
+from blade import build_rules
 from blade import config
 from blade.blade_util import var_to_list
 from blade.cc_targets import CcTarget
 
 
 class CuTarget(CcTarget):
-    """A scons cu target subclass.
-
-    This class is derived from SconsCcTarget and it is the base class
+    """This class is derived from CcTarget and is the base class
     of cu_library, cu_binary etc.
 
     """
+
     def __init__(self,
                  name,
                  target_type,
@@ -41,11 +40,6 @@ class CuTarget(CcTarget):
                  extra_linkflags,
                  blade,
                  kwargs):
-        """Init method.
-
-        Init the cu target.
-
-        """
         srcs = var_to_list(srcs)
         deps = var_to_list(deps)
         extra_cppflags = var_to_list(extra_cppflags)
@@ -67,11 +61,7 @@ class CuTarget(CcTarget):
                           kwargs)
 
     def _get_cu_flags(self):
-        """_get_cu_flags.
-
-        Return the nvcc flags according to the BUILD file and other configs.
-
-        """
+        """Return the nvcc flags according to the BUILD file and other configs. """
         nvcc_flags = []
 
         # Warnings
@@ -84,19 +74,16 @@ class CuTarget(CcTarget):
 
         # Optimize flags
         if (self.blade.get_options().profile == 'release' or
-            self.data.get('always_optimize')):
+                self.data.get('always_optimize')):
             nvcc_flags += self._get_optimize_flags()
 
         # Incs
         incs = self._get_incs_list()
 
-        return (nvcc_flags, incs)
-
+        return nvcc_flags, incs
 
     def _cu_objects_rules(self):
-        """_cu_library rules. """
         env_name = self._env_name()
-        var_name = self._var_name()
         flags_from_option, incs_list = self._get_cu_flags()
         incs_string = " -I".join(incs_list)
         flags_string = " ".join(flags_from_option)
@@ -104,25 +91,25 @@ class CuTarget(CcTarget):
         for src in self.srcs:
             obj = 'obj_%s' % self._var_name_of(src)
             target_path = os.path.join(
-                    self.build_path, self.path, '%s.objs' % self.name, src)
+                self.build_path, self.path, '%s.objs' % self.name, src)
             self._write_rule(
-                    '%s = %s.NvccObject(NVCCFLAGS="-I%s %s", target="%s" + top_env["OBJSUFFIX"]'
-                    ', source="%s")' % (obj,
-                                        env_name,
-                                        incs_string,
-                                        flags_string,
-                                        target_path,
-                                        self._target_file_path(src)))
+                '%s = %s.NvccObject(NVCCFLAGS="-I%s %s", target="%s" + top_env["OBJSUFFIX"]'
+                ', source="%s")' % (obj,
+                                    env_name,
+                                    incs_string,
+                                    flags_string,
+                                    target_path,
+                                    self._target_file_path(src)))
             objs.append(obj)
         self._write_rule('%s = [%s]' % (self._objs_name(), ','.join(objs)))
 
 
 class CuLibrary(CuTarget):
-    """A scons cu target subclass
-
-    This class is derived from SconsCuTarget and it generates the cu_library
+    """This class is derived from CuTarget and generates the cu_library
     rules according to user options.
+
     """
+
     def __init__(self,
                  name,
                  srcs,
@@ -148,10 +135,7 @@ class CuLibrary(CuTarget):
                           kwargs)
 
     def scons_rules(self):
-        """scons_rules.
-
-        It outputs the scons rules according to user options.
-        """
+        """Generate scons rules according to user options. """
         self._prepare_to_generate_rule()
         self._cu_objects_rules()
         self._cc_library()
@@ -183,11 +167,11 @@ build_rules.register_function(cu_library)
 
 
 class CuBinary(CuTarget):
-    """A scons cu target subclass
-
-    This class is derived from SconsCuTarget and it generates the cu_binary
+    """This class is derived from CuTarget and generates the cu_binary
     rules according to user options.
+
     """
+
     def __init__(self,
                  name,
                  srcs,
@@ -199,10 +183,9 @@ class CuBinary(CuTarget):
                  extra_linkflags,
                  blade,
                  kwargs):
-        type = 'cu_binary'
         CuTarget.__init__(self,
                           name,
-                          type,
+                          'cu_binary',
                           srcs,
                           deps,
                           warning,
@@ -214,7 +197,6 @@ class CuBinary(CuTarget):
                           kwargs)
 
     def _cc_binary(self):
-        """_cc_binary rules. """
         env_name = self._env_name()
         var_name = self._var_name()
 
@@ -223,7 +205,7 @@ class CuBinary(CuTarget):
          whole_link_flags) = self._get_static_deps_lib_list()
         if whole_link_flags:
             self._write_rule(
-                    '%s.Append(LINKFLAGS=[%s])' % (env_name, whole_link_flags))
+                '%s.Append(LINKFLAGS=[%s])' % (env_name, whole_link_flags))
 
         if self.data.get('export_dynamic'):
             self._write_rule(
@@ -232,10 +214,10 @@ class CuBinary(CuTarget):
         self._setup_link_flags()
 
         self._write_rule('{0}.Replace('
-                       'CC={0}["NVCC"], '
-                       'CPP={0}["NVCC"], '
-                       'CXX={0}["NVCC"], '
-                       'LINK={0}["NVCC"])'.format(env_name))
+                         'CC={0}["NVCC"], '
+                         'CPP={0}["NVCC"], '
+                         'CXX={0}["NVCC"], '
+                         'LINK={0}["NVCC"])'.format(env_name))
 
         self._write_rule('%s = %s.Program("%s", %s, %s)' % (
             var_name,
@@ -250,17 +232,14 @@ class CuBinary(CuTarget):
 
         if link_all_symbols_lib_list:
             self._write_rule('%s.Depends(%s, [%s])' % (
-                    env_name, var_name, ', '.join(link_all_symbols_lib_list)))
+                env_name, var_name, ', '.join(link_all_symbols_lib_list)))
 
-        #self._write_rule('%s.Append(LINKFLAGS=str(version_obj[0]))' % env_name)
+        # self._write_rule('%s.Append(LINKFLAGS=str(version_obj[0]))' % env_name)
         self._write_rule('%s.Requires(%s, version_obj)' % (
-                         env_name, var_name))
+            env_name, var_name))
 
     def scons_rules(self):
-        """scons_rules.
-
-        It outputs the scons rules according to user options.
-        """
+        """Generate scons rules according to user options. """
         self._prepare_to_generate_rule()
         self._cu_objects_rules()
         self._cc_binary()
@@ -292,11 +271,11 @@ build_rules.register_function(cu_binary)
 
 
 class CuTest(CuBinary):
-    """A scons cu target subclass
-
-    This class is derived from SconsCuTarget and it generates the cu_test
+    """This class is derived from CuBinary and generates the cu_test
     rules according to user options.
+
     """
+
     def __init__(self,
                  name,
                  srcs,

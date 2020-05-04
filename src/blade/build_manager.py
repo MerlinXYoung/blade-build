@@ -11,26 +11,26 @@
 
 """
 
+from __future__ import absolute_import
 from __future__ import print_function
 
+import json
 import os
 import sys
 import time
-import json
 
-import config
-import console
-
-from blade_util import cpu_count
-from dependency_analyzer import analyze_deps
-from load_build_files import load_targets
-from blade_platform import BuildPlatform
-from build_environment import BuildEnvironment
-from rules_generator import SconsRulesGenerator
-from rules_generator import NinjaRulesGenerator
-from binary_runner import BinaryRunner
-from test_runner import TestRunner
-
+from blade import config
+from blade import console
+from blade import target
+from blade.binary_runner import BinaryRunner
+from blade.blade_platform import BuildPlatform
+from blade.blade_util import cpu_count
+from blade.build_environment import BuildEnvironment
+from blade.dependency_analyzer import analyze_deps
+from blade.load_build_files import load_targets
+from blade.rules_generator import NinjaRulesGenerator
+from blade.rules_generator import SconsRulesGenerator
+from blade.test_runner import TestRunner
 
 # Global build manager instance
 instance = None
@@ -38,6 +38,7 @@ instance = None
 
 class Blade(object):
     """Blade. A blade manager class. """
+
     # pylint: disable=too-many-public-methods
     def __init__(self,
                  command_targets,
@@ -146,7 +147,7 @@ class Blade(object):
         console.info('analyzing done.')
         return self.__build_targets  # For test
 
-    def get_build_rules_generator(self):
+    def new_build_rules_generator(self):
         if config.get_item('global_config', 'native_builder') == 'ninja':
             return NinjaRulesGenerator('build.ninja', self.__blade_path, self)
         else:
@@ -155,8 +156,9 @@ class Blade(object):
     def generate_build_rules(self):
         """Generate the constructing rules. """
         console.info('generating build rules...')
-        generator = self.get_build_rules_generator()
+        generator = self.new_build_rules_generator()
         rules = generator.generate_build_script()
+        self.__all_rule_names = generator.get_all_rule_names()
         console.info('generating done.')
         return rules
 
@@ -175,7 +177,7 @@ class Blade(object):
         for k in self.__sorted_targets_keys:
             target = self.__build_targets[k]
             if (header_inclusion_dependencies and
-                target.type == 'cc_library' and target.srcs):
+                    target.type == 'cc_library' and target.srcs):
                 if not target.verify_header_inclusion_dependencies(header_inclusion_history):
                     error += 1
         self._dump_verify_history()
@@ -190,10 +192,14 @@ class Blade(object):
 
     def test(self):
         """Run tests. """
+        skip_tests = []
+        if self.__options.skip_tests:
+            skip_tests = target.normalize(self.__options.skip_tests.split(','), self.__working_dir)
         test_runner = TestRunner(self.__build_targets,
                                  self.__options,
                                  self.__target_database,
-                                 self.__direct_targets)
+                                 self.__direct_targets,
+                                 skip_tests)
         return test_runner.run()
 
     def query(self):
@@ -304,6 +310,15 @@ class Blade(object):
         for dkey in build_targets[key].deps:
             self._query_dependency_tree(dkey, level + 1, build_targets, output_file)
 
+    def dump_targets(self, output_file_name):
+        result = []
+        with open(output_file_name, 'w') as f:
+            for target_key in self.__all_command_targets:
+                target = self.__target_database[target_key]
+                result.append(target.dump())
+            json.dump(result, fp=f, indent=2)
+            print(file=f)
+
     def get_build_time(self):
         return self.__build_time
 
@@ -359,7 +374,7 @@ class Blade(object):
         # Check whether there is already a key in database
         if key in self.__target_database:
             console.error_exit('Target %s is duplicate in //%s/BUILD' % (
-                               target.name, target.path))
+                target.name, target.path))
         self.__target_database[key] = target
 
     def _is_scons_object_type(self, target_type):
@@ -388,10 +403,10 @@ class Blade(object):
                 console.warning('not registered blade object, key %s' % str(k))
                 continue
             if (skip_test and target.type.endswith('_test')
-                and k not in self.__direct_targets):
+                    and k not in self.__direct_targets):
                 continue
             if (skip_package and target.type == 'package'
-                and k not in self.__direct_targets):
+                    and k not in self.__direct_targets):
                 continue
 
             if native_builder == 'ninja':
@@ -404,8 +419,8 @@ class Blade(object):
                 rules_buf += rules
         return rules_buf
 
-    def get_scons_platform(self):
-        """Return handle of the platform class. """
+    def get_build_platform(self):
+        """Return build platform instance. """
         return self.__build_platform
 
     def get_sources_keyword_list(self):
@@ -437,11 +452,9 @@ class Blade(object):
             return user_jobs_num
 
         # Calculate job numbers smartly
-        jobs_num = 0
         distcc_enabled = config.get_item('distcc_config', 'enabled')
-
         if distcc_enabled and self.build_environment.distcc_env_prepared:
-            # Distcc cost doesn;t much local cpu, jobs can be quite large.
+            # Distcc doesn't cost much local cpu, jobs can be quite large.
             distcc_num = len(self.build_environment.get_distcc_hosts_list())
             jobs_num = min(max(int(1.5 * distcc_num), 1), 20)
         else:
@@ -449,11 +462,11 @@ class Blade(object):
             # machines with cpu_core_num > 4 is usually shared by multiple users,
             # set an upper bound to avoid interfering other users
             jobs_num = min(2 * cpu_core_num, 8)
-
-        if jobs_num != user_jobs_num:
-            console.info('tunes the parallel jobs number(-j N) to be %d' % (
-                jobs_num))
+        console.info('tunes the parallel jobs number(-j N) to be %d' % jobs_num)
         return jobs_num
+
+    def get_all_rule_names(self):
+        return self.__all_rule_names
 
 
 def initialize(
@@ -469,4 +482,3 @@ def initialize(
     instance = Blade(command_targets, load_targets,
                      blade_path, working_dir, build_path, blade_root_dir,
                      blade_options, command)
-

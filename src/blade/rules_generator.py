@@ -14,15 +14,15 @@
 
 """
 
+from __future__ import absolute_import
 
 import os
 import time
 
-import blade_util
-import config
-import console
-
-from blade_platform import CcFlagsManager
+from blade import blade_util
+from blade import config
+from blade import console
+from blade.blade_platform import CcFlagsManager
 
 
 def _incs_list_to_string(incs):
@@ -43,16 +43,17 @@ class ScriptHeaderGenerator(object):
     environment setup, predefined rules and builders, utilities
     for the underlying build system.
     """
-    def __init__(self, options, build_dir, gcc_version,
-                 python_inc, cuda_inc, build_environment, svn_roots):
+
+    def __init__(self, options, build_dir, build_platform, build_environment, svn_roots):
         self.rules_buf = []
         self.options = options
         self.build_dir = build_dir
-        self.gcc_version = gcc_version
-        self.python_inc = python_inc
-        self.cuda_inc = cuda_inc
+        self.cc = build_platform.get_cc()
+        self.cc_version = build_platform.get_cc_version()
+        self.python_inc = build_platform.get_python_include()
+        self.cuda_inc = build_platform.get_cuda_include()
         self.build_environment = build_environment
-        self.ccflags_manager = CcFlagsManager(options, build_dir, gcc_version)
+        self.ccflags_manager = CcFlagsManager(options, build_dir, build_platform)
         self.svn_roots = svn_roots
 
         self.distcc_enabled = config.get_item('distcc_config', 'enabled')
@@ -62,10 +63,10 @@ class ScriptHeaderGenerator(object):
         self.rules_buf.append('%s\n' % rule)
 
     def _append_prefix_to_building_var(
-                self,
-                prefix='',
-                building_var='',
-                condition=False):
+            self,
+            prefix='',
+            building_var='',
+            condition=False):
         """A helper method: append prefix to building var if condition is True."""
         if condition:
             return '%s %s' % (prefix, building_var)
@@ -74,21 +75,19 @@ class ScriptHeaderGenerator(object):
 
 
 class SconsScriptHeaderGenerator(ScriptHeaderGenerator):
-    def __init__(self, options, build_dir, gcc_version,
-                 python_inc, cuda_inc, build_environment, svn_roots):
+    def __init__(self, options, build_dir, build_platform, build_environment, svn_roots):
         ScriptHeaderGenerator.__init__(
-                self, options, build_dir, gcc_version,
-                python_inc, cuda_inc, build_environment, svn_roots)
+            self, options, build_dir, build_platform, build_environment, svn_roots)
 
     def generate_version_file(self):
         """Generate version information files. """
         blade_root_dir = self.build_environment.blade_root_dir
         self._add_rule(
-                'version_obj = scons_helper.generate_version_file(top_env, '
-                'blade_root_dir="%s", build_dir="%s", profile="%s", '
-                'gcc_version="%s", svn_roots=%s)' % (
+            'version_obj = scons_helper.generate_version_file(top_env, '
+            'blade_root_dir="%s", build_dir="%s", profile="%s", '
+            'gcc_version="%s", svn_roots=%s)' % (
                 blade_root_dir, self.build_dir, self.options.profile,
-                self.gcc_version, sorted(self.svn_roots)))
+                self.cc_version, sorted(self.svn_roots)))
 
     def generate_imports_functions(self, blade_path):
         """Generates imports and functions. """
@@ -111,10 +110,10 @@ from blade import scons_helper
 """)
 
         self._add_rule((
-                """if not os.path.exists('%s'):
-    os.mkdir('%s')""") % (self.build_dir, self.build_dir))
+                           """if not os.path.exists('%s'):
+               os.mkdir('%s')""") % (self.build_dir, self.build_dir))
         self._add_rule('console.set_log_file("%s")' % os.path.join(
-                self.build_dir, 'blade_scons.log'))
+            self.build_dir, 'blade_scons.log'))
         self._add_rule('scons_helper.set_blade_error_log("%s")' %
                        os.path.join(self.build_dir, 'blade_scons.log.error'))
 
@@ -133,7 +132,7 @@ from blade import scons_helper
     def generate_compliation_verbose(self):
         """Generates color and verbose message. """
         self._add_rule('scons_helper.setup_compliation_verbosity(top_env, color_enabled=%s, verbosity="%s")' %
-                (console.color_enabled, self.options.verbosity))
+                       (console.color_enabled(), self.options.verbosity))
 
     def _generate_fast_link_builders(self):
         """Generates fast link builders if it is specified in blade bash. """
@@ -161,10 +160,10 @@ from blade import scons_helper
                        'protobuf_incs_str="%s", protobuf_java_incs="%s", '
                        'protobuf_php_path="%s", protoc_php_plugin="%s", '
                        'protoc_go_plugin="%s")' % (
-            self.build_dir, protoc_bin,
-            protoc_java_bin, protobuf_path,
-            protobuf_incs_str, protobuf_java_incs,
-            protobuf_php_path, protoc_php_plugin, protoc_go_plugin))
+                           self.build_dir, protoc_bin,
+                           protoc_java_bin, protobuf_path,
+                           protobuf_incs_str, protobuf_java_incs,
+                           protobuf_php_path, protoc_php_plugin, protoc_go_plugin))
 
     def _generate_thrift_builders(self):
         # Generate thrift library builders.
@@ -174,9 +173,10 @@ from blade import scons_helper
         if thrift_bin.startswith('//'):
             thrift_bin = thrift_bin.replace('//', self.build_dir + '/')
             thrift_bin = thrift_bin.replace(':', '/')
+        thrift_gen_params = thrift_config['thrift_gen_params']
         self._add_rule(
-            'scons_helper.setup_thrift_builders(top_env, build_dir="%s", thrift_bin="%s", thrift_incs_str="%s")' % (
-                    self.build_dir, thrift_bin, thrift_incs_str))
+            'scons_helper.setup_thrift_builders(top_env, build_dir="%s", thrift_bin="%s", thrift_incs_str="%s", thrift_gen_params="%s")' % (
+                self.build_dir, thrift_bin, thrift_incs_str, thrift_gen_params))
 
     def _generate_fbthrift_builders(self):
         fbthrift_config = config.get_section('fbthrift_config')
@@ -184,8 +184,8 @@ from blade import scons_helper
         fbthrift2_bin = fbthrift_config['fbthrift2']
         fbthrift_incs_str = _incs_list_to_string(fbthrift_config['fbthrift_incs'])
         self._add_rule('scons_helper.setup_fbthrift_builders(top_env, "%s", '
-                'fbthrift1_bin="%s", fbthrift2_bin="%s", fbthrift_incs_str="%s")' % (
-                    self.build_dir, fbthrift1_bin, fbthrift2_bin, fbthrift_incs_str))
+                       'fbthrift1_bin="%s", fbthrift2_bin="%s", fbthrift_incs_str="%s")' % (
+                           self.build_dir, fbthrift1_bin, fbthrift2_bin, fbthrift_incs_str))
 
     def _generate_cuda_builders(self):
         nvcc_str = os.environ.get('NVCC', 'nvcc')
@@ -207,8 +207,8 @@ from blade import scons_helper
 
     def _generate_go_builders(self):
         go_config = config.get_section('go_config')
-        self._add_rule('scons_helper.setup_go_builders(top_env, "%s", "%s")' %
-                       (go_config['go'], go_config['go_home']))
+        self._add_rule('scons_helper.setup_go_builders(top_env, "%s", "%s", %r)' %
+                       (go_config['go'], go_config['go_home'], go_config['go_module_enabled']))
 
     def _generate_other_builders(self):
         self._add_rule('scons_helper.setup_other_builders(top_env)')
@@ -242,36 +242,34 @@ from blade import scons_helper
         console.debug('CXX=%s' % cxx)
         console.debug('LD=%s' % ld)
 
-        self.ccflags_manager.set_cc(cc)
-
         # To modify CC, CXX, LD according to the building environment and
         # project configuration
         build_with_distcc = (self.distcc_enabled and
                              self.build_environment.distcc_env_prepared)
         cc_str = self._append_prefix_to_building_var(
-                         prefix='distcc',
-                         building_var=cc,
-                         condition=build_with_distcc)
+            prefix='distcc',
+            building_var=cc,
+            condition=build_with_distcc)
 
         cxx_str = self._append_prefix_to_building_var(
-                         prefix='distcc',
-                         building_var=cxx,
-                         condition=build_with_distcc)
+            prefix='distcc',
+            building_var=cxx,
+            condition=build_with_distcc)
 
         build_with_ccache = self.build_environment.ccache_installed
         cc_str = self._append_prefix_to_building_var(
-                         prefix='ccache',
-                         building_var=cc_str,
-                         condition=build_with_ccache)
+            prefix='ccache',
+            building_var=cc_str,
+            condition=build_with_ccache)
 
         cxx_str = self._append_prefix_to_building_var(
-                         prefix='ccache',
-                         building_var=cxx_str,
-                         condition=build_with_ccache)
+            prefix='ccache',
+            building_var=cxx_str,
+            condition=build_with_ccache)
 
         cc_config = config.get_section('cc_config')
         cc_env_str = ('CC="%s", CXX="%s", SECURECXX="%s %s"' % (
-                      cc_str, cxx_str, cc_config['securecc'], cxx))
+            cc_str, cxx_str, cc_config['securecc'], cxx))
         ld_env_str = 'LINK="%s"' % ld
 
         extra_incs = cc_config['extra_incs']
@@ -332,7 +330,7 @@ from blade import scons_helper
 
         warnings, cxx_warnings, c_warnings = self.ccflags_manager.get_warning_flags()
         self._add_rule('%s.Append(CPPFLAGS=%s, CFLAGS=%s, CXXFLAGS=%s)' % (
-                       env_cc_warning, warnings, c_warnings, cxx_warnings))
+            env_cc_warning, warnings, c_warnings, cxx_warnings))
 
     def _setup_env_java(self):
         env_java = 'env_java'
@@ -347,10 +345,10 @@ from blade import scons_helper
         self._add_rule('%s.Replace(JAVAVERSION="%s")' % (env_java, java_version))
         if source_version:
             self._add_rule('%s.Append(JAVACFLAGS="-source %s")' % (
-                           env_java, source_version))
+                env_java, source_version))
         if target_version:
             self._add_rule('%s.Append(JAVACFLAGS="-target %s")' % (
-                           env_java, target_version))
+                env_java, target_version))
         jacoco_home = config.get_item('java_test_config', 'jacoco_home')
         if jacoco_home:
             jacoco_agent = os.path.join(jacoco_home, 'lib', 'jacocoagent.jar')
@@ -372,17 +370,22 @@ from blade import scons_helper
 
 class NinjaScriptHeaderGenerator(ScriptHeaderGenerator):
     # pylint: disable=too-many-public-methods
-    def __init__(self, options, build_dir, blade_path, gcc_version,
-                 python_inc, cuda_inc, build_environment, svn_roots):
+    def __init__(self, options, build_dir, blade_path, build_platform, blade):
         ScriptHeaderGenerator.__init__(
-                self, options, build_dir, gcc_version,
-                python_inc, cuda_inc, build_environment, svn_roots)
+            self, options, build_dir, build_platform,
+            blade.build_environment, blade.svn_root_dirs)
+        self.blade = blade
         self.blade_path = blade_path
+        self.__all_rule_names = set()
+
+    def get_all_rule_names(self):
+        return list(self.__all_rule_names)
 
     def generate_rule(self, name, command, description=None,
                       depfile=None, generator=False, pool=None,
                       restat=False, rspfile=None,
                       rspfile_content=None, deps=None):
+        self.__all_rule_names.add(name)
         self._add_rule('rule %s' % name)
         self._add_rule('  command = %s' % command)
         if description:
@@ -436,7 +439,6 @@ cxx_warnings = %s
             os.environ['CCACHE_NOHASHDIR'] = 'true'
             cc = 'ccache ' + cc
             cxx = 'ccache ' + cxx
-        self.ccflags_manager.set_cc(cc)
         cc_config = config.get_section('cc_config')
         cc_library_config = config.get_section('cc_library_config')
         cflags, cxxflags = cc_config['cflags'], cc_config['cxxflags']
@@ -450,54 +452,69 @@ cxx_warnings = %s
 
         self.generate_cc_warning_vars()
         self.generate_rule(name='cc',
-                command='%s -o ${out} -MMD -MF ${out}.d '
-                        '-c -fPIC %s %s ${c_warnings} ${cppflags} '
-                        '%s ${includes} ${in}' % (
-                        cc, ' '.join(cflags), ' '.join(cppflags), includes),
-                description='CC ${in}',
-                depfile='${out}.d',
-                deps='gcc')
+                           command='%s -o ${out} -MMD -MF ${out}.d '
+                                   '-c -fPIC %s %s ${c_warnings} ${cppflags} '
+                                   '%s ${includes} ${in}' % (
+                                       cc, ' '.join(cflags), ' '.join(cppflags), includes),
+                           description='CC ${in}',
+                           depfile='${out}.d',
+                           deps='gcc')
         self.generate_rule(name='cxx',
-                command='%s -o ${out} -MMD -MF ${out}.d '
-                        '-c -fPIC %s %s ${cxx_warnings} ${cppflags} '
-                        '%s ${includes} ${in}' % (
-                        cxx, ' '.join(cxxflags), ' '.join(cppflags), includes),
-                description='CXX ${in}',
-                depfile='${out}.d',
-                deps='gcc')
+                           command='%s -o ${out} -MMD -MF ${out}.d '
+                                   '-c -fPIC %s %s ${cxx_warnings} ${cppflags} '
+                                   '%s ${includes} ${in}' % (
+                                       cxx, ' '.join(cxxflags), ' '.join(cppflags), includes),
+                           description='CXX ${in}',
+                           depfile='${out}.d',
+                           deps='gcc')
         if config.get_item('cc_config', 'header_inclusion_dependencies'):
             preprocess = '%s -o /dev/null -E -H %s %s -w ${cppflags} %s ${includes} ${in} 2>${out}'
             self.generate_rule(name='cchdrs',
-                    command=preprocess % (cc, ' '.join(cflags), ' '.join(cppflags), includes),
-                    description='CC HDRS ${in}')
+                               command=preprocess % (cc, ' '.join(cflags), ' '.join(cppflags), includes),
+                               description='CC HDRS ${in}')
             self.generate_rule(name='cxxhdrs',
-                    command=preprocess % (cxx, ' '.join(cxxflags), ' '.join(cppflags), includes),
-                    description='CXX HDRS ${in}')
+                               command=preprocess % (cxx, ' '.join(cxxflags), ' '.join(cppflags), includes),
+                               description='CXX HDRS ${in}')
         securecc = '%s %s' % (cc_config['securecc'], cxx)
         self._add_rule('''
 build __securecc_phony__ : phony
 ''')
         self.generate_rule(name='securecccompile',
-                command='%s -o ${out} -c -fPIC '
-                        '%s %s ${cxx_warnings} ${cppflags} %s ${includes} ${in}' % (
-                        securecc, ' '.join(cxxflags), ' '.join(cppflags), includes),
-                description='SECURECC ${in}')
+                           command='%s -o ${out} -c -fPIC '
+                                   '%s %s ${cxx_warnings} ${cppflags} %s ${includes} ${in}' % (
+                                       securecc, ' '.join(cxxflags), ' '.join(cppflags), includes),
+                           description='SECURECC ${in}')
         self.generate_rule(name='securecc',
-                command=self.generate_toolchain_command('securecc_object'),
-                description='SECURECC ${in}',
-                restat=True)
+                           command=self._toolchain_command('securecc_object'),
+                           description='SECURECC ${in}',
+                           restat=True)
 
         self.generate_rule(name='ar',
                            command='rm -f $out; ar %s $out $in' % arflags,
                            description='AR ${out}')
+        link_jobs = config.get_item('link_config', 'link_jobs')
+        if link_jobs:
+            link_jobs = min(link_jobs, self.blade.parallel_jobs_num())
+            console.info('tunes the parallel link jobs to be %s' % link_jobs)
+            pool = 'link_pool'
+            self._add_rule('''
+pool %s
+  depth = %s''' % (pool, link_jobs))
+        else:
+            pool = None
         self.generate_rule(name='link',
                            command='%s -o ${out} %s ${ldflags} ${in} ${extra_ldflags}' % (
-                                   ld, ' '.join(ldflags)),
-                           description='LINK ${out}')
+                               ld, ' '.join(ldflags)),
+                           description='LINK ${out}',
+                           pool=pool)
         self.generate_rule(name='solink',
                            command='%s -o ${out} -shared %s ${ldflags} ${in} ${extra_ldflags}' % (
-                                   ld, ' '.join(ldflags)),
-                           description='SHAREDLINK ${out}')
+                               ld, ' '.join(ldflags)),
+                           description='SHAREDLINK ${out}',
+                           pool=pool)
+        self.generate_rule(name='strip',
+                           command='strip --strip-unneeded -o ${out} ${in}',
+                           description='STRIP ${out}')
 
     def generate_proto_rules(self):
         proto_config = config.get_section('proto_library_config')
@@ -518,30 +535,35 @@ protocpythonpluginflags =
         self.generate_rule(name='proto',
                            command='%s --proto_path=. %s -I=`dirname ${in}` '
                                    '--cpp_out=%s ${protocflags} ${protoccpppluginflags} ${in}' % (
-                                   protoc, protobuf_incs, self.build_dir),
+                                       protoc, protobuf_incs, self.build_dir),
                            description='PROTOC ${in}')
         self.generate_rule(name='protojava',
                            command='%s --proto_path=. %s --java_out=%s/`dirname ${in}` '
                                    '${protocjavapluginflags} ${in}' % (
-                                   protoc_java, protobuf_java_incs, self.build_dir),
+                                       protoc_java, protobuf_java_incs, self.build_dir),
                            description='PROTOCJAVA ${in}')
         self.generate_rule(name='protopython',
                            command='%s --proto_path=. %s -I=`dirname ${in}` '
                                    '--python_out=%s ${protocpythonpluginflags} ${in}' % (
-                                   protoc, protobuf_incs, self.build_dir),
+                                       protoc, protobuf_incs, self.build_dir),
                            description='PROTOCPYTHON ${in}')
         self.generate_rule(name='protodescriptors',
                            command='%s --proto_path=. %s -I=`dirname ${first}` '
                                    '--descriptor_set_out=${out} --include_imports '
                                    '--include_source_info ${in}' % (
-                                   protoc, protobuf_incs),
+                                       protoc, protobuf_incs),
                            description='PROTODESCRIPTORS ${in}')
         protoc_go_plugin = proto_config['protoc_go_plugin']
         if protoc_go_plugin:
             go_home = config.get_item('go_config', 'go_home')
+            go_module_enabled = config.get_item('go_config', 'go_module_enabled')
+            go_module_relpath = config.get_item('go_config', 'go_module_relpath')
             if not go_home:
                 console.error_exit('go_home is not configured in either BLADE_ROOT or BLADE_ROOT.local.')
-            outdir = os.path.join(go_home, 'src')
+            if go_module_enabled and not go_module_relpath:
+                outdir = proto_config['protobuf_go_path']
+            else:
+                outdir = os.path.join(go_home, 'src')
             subplugins = proto_config['protoc_go_subplugins']
             if subplugins:
                 go_out = 'plugins=%s:%s' % ('+'.join(subplugins), outdir)
@@ -550,13 +572,13 @@ protocpythonpluginflags =
             self.generate_rule(name='protogo',
                                command='%s --proto_path=. %s -I=`dirname ${in}` '
                                        '--plugin=protoc-gen-go=%s --go_out=%s ${in}' % (
-                                       protoc, protobuf_incs, protoc_go_plugin, go_out),
+                                           protoc, protobuf_incs, protoc_go_plugin, go_out),
                                description='PROTOCGOLANG ${in}')
 
     def generate_resource_rules(self):
         args = '${name} ${path} ${out} ${in}'
         self.generate_rule(name='resource_index',
-                           command=self.generate_toolchain_command('resource_index', suffix=args),
+                           command=self._toolchain_command('resource_index', suffix=args),
                            description='RESOURCE INDEX ${out}')
         self.generate_rule(name='resource',
                            command='xxd -i ${in} | '
@@ -597,12 +619,12 @@ javacflags =
                            command='rm -fr ${classes_dir} && mkdir -p ${classes_dir} && '
                                    '%s && sleep 0.5 && '
                                    '%s cf ${out} -C ${classes_dir} .' % (
-                                   ' '.join(cmd), jar),
+                                       ' '.join(cmd), jar),
                            description='JAVAC ${in}')
 
     def generate_java_resource_rules(self):
         self.generate_rule(name='javaresource',
-                           command=self.generate_toolchain_command('java_resource'),
+                           command=self._toolchain_command('java_resource'),
                            description='JAVA RESOURCE ${in}')
 
     def generate_java_test_rules(self):
@@ -615,19 +637,17 @@ javacflags =
         self._add_rule('javatargetundertestpkg = __targetundertestpkg__')
         args = '${mainclass} ${javatargetundertestpkg} ${out} ${in}'
         self.generate_rule(name='javatest',
-                           command=self.generate_toolchain_command('java_test',
-                                                                   prefix=prefix,
-                                                                   suffix=args),
+                           command=self._toolchain_command('java_test', prefix=prefix, suffix=args),
                            description='JAVA TEST ${out}')
 
     def generate_java_binary_rules(self):
         bootjar = config.get_item('java_binary_config', 'one_jar_boot_jar')
         args = '%s ${mainclass} ${out} ${in}' % bootjar
         self.generate_rule(name='onejar',
-                           command=self.generate_toolchain_command('java_onejar', suffix=args),
+                           command=self._toolchain_command('java_onejar', suffix=args),
                            description='ONE JAR ${out}')
         self.generate_rule(name='javabinary',
-                           command=self.generate_toolchain_command('java_binary'),
+                           command=self._toolchain_command('java_binary'),
                            description='JAVA BIN ${out}')
 
     def generate_scala_rules(self, java_config):
@@ -656,7 +676,7 @@ scalacflags = -nowarn
                            description='SCALAC ${out}')
         args = '%s %s ${out} ${in}' % (java, scala)
         self.generate_rule(name='scalatest',
-                           command=self.generate_toolchain_command('scala_test', suffix=args),
+                           command=self._toolchain_command('scala_test', suffix=args),
                            description='SCALA TEST ${out}')
 
     def generate_java_scala_rules(self):
@@ -666,11 +686,11 @@ scalacflags = -nowarn
         jar = self.get_java_command(java_config, 'jar')
         args = '%s ${out} ${in}' % jar
         self.generate_rule(name='javajar',
-                           command=self.generate_toolchain_command('java_jar', suffix=args),
+                           command=self._toolchain_command('java_jar', suffix=args),
                            description='JAVA JAR ${out}')
         self.generate_java_test_rules()
         self.generate_rule(name='fatjar',
-                           command=self.generate_toolchain_command('java_fatjar'),
+                           command=self._toolchain_command('java_fatjar'),
                            description='FAT JAR ${out}')
         self.generate_java_binary_rules()
         self.generate_scala_rules(java_config)
@@ -678,15 +698,16 @@ scalacflags = -nowarn
     def generate_thrift_rules(self):
         thrift_config = config.get_section('thrift_config')
         incs = _incs_list_to_string(thrift_config['thrift_incs'])
+        gen_params = thrift_config['thrift_gen_params']
         thrift = thrift_config['thrift']
         if thrift.startswith('//'):
             thrift = thrift.replace('//', self.build_dir + '/')
             thrift = thrift.replace(':', '/')
         self.generate_rule(name='thrift',
-                           command='%s --gen cpp:include_prefix,pure_enums '
+                           command='%s --gen %s '
                                    '-I . %s -I `dirname ${in}` '
                                    '-out %s/`dirname ${in}` ${in}' % (
-                                   thrift, incs, self.build_dir),
+                                       thrift, gen_params, incs, self.build_dir),
                            description='THRIFT ${in}')
 
     def generate_python_rules(self):
@@ -695,43 +716,57 @@ pythonbasedir = __pythonbasedir__
 ''')
         args = '${pythonbasedir} ${out} ${in}'
         self.generate_rule(name='pythonlibrary',
-                           command=self.generate_toolchain_command('python_library', suffix=args),
+                           command=self._toolchain_command('python_library', suffix=args),
                            description='PYTHON LIBRARY ${out}')
         args = '${pythonbasedir} ${mainentry} ${out} ${in}'
         self.generate_rule(name='pythonbinary',
-                           command=self.generate_toolchain_command('python_binary', suffix=args),
+                           command=self._toolchain_command('python_binary', suffix=args),
                            description='PYTHON BINARY ${out}')
 
     def generate_go_rules(self):
         go_home = config.get_item('go_config', 'go_home')
         go = config.get_item('go_config', 'go')
+        go_module_enabled = config.get_item('go_config', 'go_module_enabled')
+        go_module_relpath = config.get_item('go_config', 'go_module_relpath')
         if go_home and go:
             go_pool = 'golang_pool'
             self._add_rule('''
 pool %s
   depth = 1''' % go_pool)
             go_path = os.path.normpath(os.path.abspath(go_home))
-            prefix = 'GOPATH=%s %s' % (go_path, go)
+            out_relative = ""
+            if go_module_enabled:
+                prefix = go
+                if go_module_relpath:
+                    relative_prefix = os.path.relpath(prefix, go_module_relpath)
+                    prefix = "cd {go_module_relpath} && {relative_prefix}".format(
+                        go_module_relpath=go_module_relpath,
+                        relative_prefix=relative_prefix,
+                    )
+                    # add slash to the end of the relpath
+                    out_relative = os.path.join(os.path.relpath("./", go_module_relpath), "")
+            else:
+                prefix = 'GOPATH=%s %s' % (go_path, go)
             self.generate_rule(name='gopackage',
-                               command='%s install ${package}' % prefix,
+                               command='%s install ${extra_goflags} ${package}' % prefix,
                                description='GOLANG PACKAGE ${package}',
                                pool=go_pool)
             self.generate_rule(name='gocommand',
-                               command='%s build -o ${out} ${package}' % prefix,
+                               command='%s build -o %s${out} ${extra_goflags} ${package}' % (prefix, out_relative),
                                description='GOLANG COMMAND ${package}',
                                pool=go_pool)
             self.generate_rule(name='gotest',
-                               command='%s test -c -o ${out} ${package}' % prefix,
+                               command='%s test -c -o %s${out} ${extra_goflags} ${package}' % (prefix, out_relative),
                                description='GOLANG TEST ${package}',
                                pool=go_pool)
 
     def generate_shell_rules(self):
         self.generate_rule(name='shelltest',
-                           command=self.generate_toolchain_command('shell_test'),
+                           command=self._toolchain_command('shell_test'),
                            description='SHELL TEST ${out}')
         args = '${out} ${in} ${testdata}'
         self.generate_rule(name='shelltestdata',
-                           command=self.generate_toolchain_command('shell_testdata', suffix=args),
+                           command=self._toolchain_command('shell_testdata', suffix=args),
                            description='SHELL TEST DATA ${out}')
 
     def generate_lex_yacc_rules(self):
@@ -745,7 +780,7 @@ pool %s
     def generate_package_rules(self):
         args = '${out} ${in} ${entries}'
         self.generate_rule(name='package',
-                           command=self.generate_toolchain_command('package', suffix=args),
+                           command=self._toolchain_command('package', suffix=args),
                            description='PACKAGE ${out}')
         self.generate_rule(name='package_tar',
                            command='tar -c -f ${out} ${tarflags} -C ${packageroot} ${entries}',
@@ -759,7 +794,7 @@ pool %s
         revision, url = blade_util.load_scm(self.build_dir)
         args = '${out} ${revision} ${url} ${profile} "${compiler}"'
         self.generate_rule(name='scm',
-                           command=self.generate_toolchain_command('scm', suffix=args),
+                           command=self._toolchain_command('scm', suffix=args),
                            description='SCM ${out}')
         scm = os.path.join(self.build_dir, 'scm.cc')
         self._add_rule('''
@@ -768,14 +803,14 @@ build %s: scm
   url = %s
   profile = %s
   compiler = %s
-''' % (scm, revision, url, self.options.profile, 'GCC ' + self.gcc_version))
+''' % (scm, revision, url, self.options.profile, '%s %s' % (self.cc, self.cc_version)))
         self._add_rule('''
 build %s: cxx %s
   cppflags = -w -O2
   cxx_warnings =
 ''' % (scm + '.o', scm))
 
-    def generate_toolchain_command(self, builder, prefix='', suffix=''):
+    def _toolchain_command(self, builder, prefix='', suffix=''):
         cmd = ['PYTHONPATH=%s:$$PYTHONPATH' % self.blade_path]
         if prefix:
             cmd.append(prefix)
@@ -809,17 +844,17 @@ class RulesGenerator(object):
     Generate build rules according to underlying build system and blade options.
     This class should be inherited by particular build system generator.
     """
+
     def __init__(self, script_path, blade_path, blade):
         self.script_path = script_path
         self.blade_path = blade_path
         self.blade = blade
-        self.scons_platform = self.blade.get_scons_platform()
+        self.build_platform = self.blade.get_build_platform()
         self.build_dir = self.blade.get_build_path()
-        try:
-            os.remove('blade-bin')
-        except os.error:
-            pass
-        os.symlink(os.path.abspath(self.build_dir), 'blade-bin')
+
+    def get_all_rule_names(self):
+        """Get all build rule names"""
+        return []
 
     def generate_build_rules(self):
         """Generate build rules for underlying build system. """
@@ -836,20 +871,15 @@ class RulesGenerator(object):
 
 class SconsRulesGenerator(RulesGenerator):
     """The main class to generate scons rules and outputs rules to SConstruct. """
+
     def __init__(self, scons_path, blade_path, blade):
         RulesGenerator.__init__(self, scons_path, blade_path, blade)
-        options = self.blade.get_options()
-        gcc_version = self.scons_platform.get_gcc_version()
-        python_inc = self.scons_platform.get_python_include()
-        cuda_inc = self.scons_platform.get_cuda_include()
         self.scons_script_header_generator = SconsScriptHeaderGenerator(
-                options,
-                self.build_dir,
-                gcc_version,
-                python_inc,
-                cuda_inc,
-                self.blade.build_environment,
-                self.blade.svn_root_dirs)
+            self.blade.get_options(),
+            self.build_dir,
+            self.build_platform,
+            self.blade.build_environment,
+            self.blade.svn_root_dirs)
 
     def generate_build_rules(self):
         """Generates scons rules to SConstruct. """
@@ -860,24 +890,23 @@ class SconsRulesGenerator(RulesGenerator):
 
 class NinjaRulesGenerator(RulesGenerator):
     """Generate ninja rules to build.ninja. """
+
     def __init__(self, ninja_path, blade_path, blade):
         RulesGenerator.__init__(self, ninja_path, blade_path, blade)
+        self.__all_rule_names = []
+
+    def get_all_rule_names(self):  # override
+        return self.__all_rule_names
 
     def generate_build_rules(self):
         """Generate ninja rules to build.ninja. """
-        options = self.blade.get_options()
-        gcc_version = self.scons_platform.get_gcc_version()
-        python_inc = self.scons_platform.get_python_include()
-        cuda_inc = self.scons_platform.get_cuda_include()
         ninja_script_header_generator = NinjaScriptHeaderGenerator(
-                options,
-                self.build_dir,
-                self.blade_path,
-                gcc_version,
-                python_inc,
-                cuda_inc,
-                self.blade.build_environment,
-                self.blade.svn_root_dirs)
+            self.blade.get_options(),
+            self.build_dir,
+            self.blade_path,
+            self.build_platform,
+            self.blade)
         rules = ninja_script_header_generator.generate()
         rules += self.blade.gen_targets_rules()
+        self.__all_rule_names = ninja_script_header_generator.get_all_rule_names()
         return rules

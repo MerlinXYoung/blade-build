@@ -11,13 +11,49 @@
 
 """
 
+from __future__ import absolute_import
 
 import os
 import string
 
-import config
-import console
-from blade_util import var_to_list
+from blade import config
+from blade import console
+from blade.blade_util import var_to_list, iteritems
+
+
+def _normalize_one(target, working_dir):
+    """Normalize target from command line form into canonical form.
+
+    Target canonical form: dir:name
+        dir: relative to blade_root_dir, use '.' for blade_root_dir
+        name: name  if target is dir:name
+              '*'   if target is dir
+              '...' if target is dir/...
+    """
+    if target.startswith('//'):
+        target = target[2:]
+    elif target.startswith('/'):
+        console.error_exit('Invalid target "%s" starting from root path.' % target)
+    else:
+        if working_dir != '.':
+            target = os.path.join(working_dir, target)
+
+    if ':' in target:
+        path, name = target.rsplit(':', 1)
+    else:
+        if target.endswith('...'):
+            path = target[:-3]
+            name = '...'
+        else:
+            path = target
+            name = '*'
+    path = os.path.normpath(path)
+    return '%s:%s' % (path, name)
+
+
+def normalize(targets, working_dir):
+    """Normalize target list from command line form into canonical form."""
+    return [_normalize_one(target, working_dir) for target in targets]
 
 
 class Target(object):
@@ -27,6 +63,7 @@ class Target(object):
     targets, etc.
 
     """
+
     def __init__(self,
                  name,
                  target_type,
@@ -73,6 +110,39 @@ class Target(object):
         self.build_rules = []
         self.data['generated_hdrs'] = []
 
+    def dump(self):
+        """Dump to a dict"""
+        target = {
+            'type': self.type,
+            'path': self.path,
+            'name': self.name,
+            'srcs': self.srcs,
+            'deps': self.deps,
+            'visibility': self.visibility,
+        }
+        target.update(self.data)
+        return target
+
+    def debug(self, msg):
+        """Print message with target full name prefix"""
+        console.debug('//%s: %s' % (self.fullname, msg))
+
+    def info(self, msg):
+        """Print message with target full name prefix"""
+        console.info('//%s: %s' % (self.fullname, msg))
+
+    def warning(self, msg):
+        """Print message with target full name prefix"""
+        console.warning('//%s: %s' % (self.fullname, msg))
+
+    def error(self, msg):
+        """Print message with target full name prefix"""
+        console.error('//%s: %s' % (self.fullname, msg))
+
+    def error_exit(self, msg, code=1):
+        """Print message with target full name prefix and exit"""
+        console.error_exit('//%s: %s' % (self.fullname, msg), code=code)
+
     def _clone_env(self):
         """Clone target's environment. """
         self._write_rule('%s = top_env.Clone()' % self._env_name())
@@ -83,16 +153,14 @@ class Target(object):
 
     def _check_name(self):
         if '/' in self.name:
-            console.error_exit('//%s: Invalid target name, should not contain dir part.'
-                               % self.fullname)
+            self.error_exit('Invalid target name, should not contain dir part')
 
     def _check_kwargs(self, kwargs):
         if kwargs:
-            console.error_exit('//%s: unrecognized options %s' % (
-                               self.fullname, kwargs))
+            self.error_exit('unrecognized options %s' % kwargs)
 
     def _allow_duplicate_source(self):
-        """Whether the target allows duplicate source file with other targets. """
+        """Whether the target allows duplicate source file with other targets"""
         return False
 
     # Keep the relationship of all src -> target.
@@ -112,16 +180,14 @@ class Target(object):
             else:
                 srcset.add(s)
         if dups:
-            console.error_exit('%s Duplicate source file paths: %s ' % (
-                               self.fullname, dups))
+            self.error_exit('Duplicate source file paths: %s ' % dups)
 
         # Check if one file belongs to two different targets.
         action = config.get_item('global_config', 'duplicated_source_action')
         for s in self.srcs:
             if '..' in s or s.startswith('/'):
-                console.error_exit('%s Invalid source file path: %s. '
-                    'can only be relative path, and must in current directory '
-                    'or subdirectories.' % (self.fullname, s))
+                self.error_exit('Invalid source file path: %s. can only be relative path, and must '
+                                'in current directory or subdirectories.' % s)
 
             src = os.path.normpath(os.path.join(self.path, s))
             target = self.fullname, self._allow_duplicate_source()
@@ -138,7 +204,7 @@ class Target(object):
                         pass
                     else:
                         message = 'Source file %s belongs to {%s, %s}' % (
-                                  s, target_existed[0], target[0])
+                            s, target_existed[0], target[0])
                         if action == 'error':
                             console.error_exit(message)
                         elif action == 'warning':
@@ -208,7 +274,6 @@ class Target(object):
                 self.deps.append(key)
             return key, type
 
-
     def _unify_dep(self, dep):
         """Unify dep to key"""
         if dep[0] == ':':
@@ -217,7 +282,7 @@ class Target(object):
         elif dep.startswith('//'):
             # Depend on library in remote directory
             if not ':' in dep:
-                raise Exception, 'Wrong format in %s' % self.fullname
+                raise Exception('Wrong format in %s' % self.fullname)
             (path, lib) = dep[2:].rsplit(':', 1)
             dkey = (os.path.normpath(path), lib)
         elif dep.startswith('#'):
@@ -228,12 +293,12 @@ class Target(object):
         else:
             # Depend on library in relative subdirectory
             if not ':' in dep:
-                raise Exception, 'Wrong format in %s' % self.fullname
+                raise Exception('Wrong format in %s' % self.fullname)
             (path, lib) = dep.rsplit(':', 1)
             if '..' in path:
-                raise Exception, "Don't use '..' in path"
+                raise Exception("Don't use '..' in path")
             dkey = (os.path.normpath('%s/%s' % (
-                                      self.path, path)), lib)
+                self.path, path)), lib)
 
         return dkey
 
@@ -270,10 +335,9 @@ class Target(object):
         """
         if not (t.startswith(':') or t.startswith('#') or
                 t.startswith('//') or t.startswith('./')):
-            console.error_exit('%s: Invalid %s.' % (self.fullname, t))
+            self.error_exit('Invalid format %s.' % t)
         if t.count(':') > 1:
-            console.error_exit('%s: Invalid %s, missing \',\' between?' %
-                               (self.fullname, t))
+            self.error_exit("Invalid format %s, missing ',' between labels?" % t)
 
     def _check_deps(self, deps):
         """_check_deps
@@ -360,21 +424,7 @@ class Target(object):
         return [], []
 
     def _regular_variable_name(self, var):
-        """_regular_variable_name.
-
-        Parameters
-        -----------
-        var: the variable to be modified
-
-        Returns
-        -----------
-        s: the variable modified
-
-        Description
-        -----------
-        Replace the chars that scons doesn't regconize.
-
-        """
+        """Replace the chars of var that scons doesn't recognize. """
         return var.translate(string.maketrans(',-/.+*', '______'))
 
     def _generate_variable_name(self, path, name, suffix=''):
@@ -605,16 +655,12 @@ class Target(object):
 
         """
         results = set()
-        for _, v in self.data['targets'].iteritems():
+        for _, v in iteritems(self.data['targets']):
             if isinstance(v, list):
                 results.update(v)
             else:
                 results.add(v)
         return sorted(results)
-
-    def _generate_header_files(self):
-        """Whether this target generates header files during building. """
-        return False
 
     def _write_rule(self, rule):
         """_write_rule.
@@ -642,28 +688,26 @@ class Target(object):
         """Generate ninja rules for specific target. """
         raise NotImplementedError(self.fullname)
 
-    def ninja_build(self, outputs, rule, inputs=None,
+    def ninja_build(self, rule, outputs, inputs=None,
                     implicit_deps=None, order_only_deps=None,
                     variables=None, implicit_outputs=None):
         """Generate a ninja build statement with specified parameters. """
         outs = var_to_list(outputs)
         if implicit_outputs:
             outs.append('|')
-            outs += implicit_outputs
-        ins = []
-        if inputs:
-            ins = var_to_list(inputs)
+            outs += var_to_list(implicit_outputs)
+        ins = var_to_list(inputs) if inputs else []
         if implicit_deps:
             ins.append('|')
-            ins += implicit_deps
+            ins += var_to_list(implicit_deps)
         if order_only_deps:
             ins.append('||')
-            ins += order_only_deps
+            ins += var_to_list(order_only_deps)
         self._write_rule('build %s: %s %s' % (' '.join(outs), rule, ' '.join(ins)))
 
         if variables:
             assert isinstance(variables, dict)
-            for name, v in variables.iteritems():
+            for name, v in iteritems(variables):
                 if v:
                     self._write_rule('  %s = %s' % (name, v))
                 else:

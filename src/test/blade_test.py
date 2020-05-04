@@ -16,11 +16,12 @@ import unittest
 sys.path.append('..')
 import blade.build_manager
 import blade.config
-from blade.argparse import Namespace
+from argparse import Namespace
 
 
 class TargetTest(unittest.TestCase):
     """base class Test """
+
     def doSetUp(self, path, target='...', full_targets=None,
                 command='build', generate_php=True, **kwargs):
         """setup method. """
@@ -41,8 +42,8 @@ class TargetTest(unittest.TestCase):
     def tearDown(self):
         """tear down method. """
         try:
-            os.remove('./SConstruct')
             os.remove(self.scons_output_file)
+            os.remove('./SConstruct')
         except OSError:
             pass
 
@@ -52,7 +53,7 @@ class TargetTest(unittest.TestCase):
         # We can use pipe to capture stdout, but keep the output file make it
         # easy debugging.
         p = subprocess.Popen(
-                '../../../blade %s %s --generate-dynamic --verbose --dry-run %s > %s' % (
+            '../../../blade %s %s --generate-dynamic --verbose --dry-run %s > %s' % (
                 self.command, self.targets, extra_args, self.scons_output_file),
             shell=True)
         try:
@@ -60,7 +61,7 @@ class TargetTest(unittest.TestCase):
             self.scons_output = open(self.scons_output_file).readlines()
             return p.returncode == 0
         except:
-            print >>sys.stderr, 'Failed while dry running:\n%s' % sys.exc_info()
+            sys.stderr.write('Failed while dry running:\n%s\n' % sys.exc_info())
         return False
 
     def findCommandAndLine(self, kwlist):
@@ -132,6 +133,6 @@ class TargetTest(unittest.TestCase):
 def run(class_name):
     suite_test = unittest.TestSuite()
     suite_test.addTests(
-            [unittest.defaultTestLoader.loadTestsFromTestCase(class_name)])
+        [unittest.defaultTestLoader.loadTestsFromTestCase(class_name)])
     runner = unittest.TextTestRunner()
     runner.run(suite_test)

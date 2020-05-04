@@ -18,10 +18,9 @@ import os
 from blade import build_manager
 from blade import build_rules
 from blade import console
-from blade.blade_util import var_to_list
 from blade.blade_util import location_re
+from blade.blade_util import var_to_list
 from blade.target import Target
-
 
 _package_types = frozenset([
     'tar',
@@ -41,6 +40,7 @@ class PackageTarget(Target):
     compressed using gzip or bz2 according to the package type.
 
     """
+
     def __init__(self,
                  name,
                  srcs,
@@ -63,9 +63,8 @@ class PackageTarget(Target):
                         kwargs)
 
         if type not in _package_types:
-            console.error_exit('%s: Invalid type %s. Types supported '
-                               'by the package are %s' % (
-                               self.fullname, type, ', '.join(sorted(_package_types))))
+            self.error_exit('Invalid type %s. Types supported by the package are %s' % (
+                            type, ', '.join(sorted(_package_types))))
         self.data['type'] = type
         self.data['sources'], self.data['locations'] = [], []
         self._process_srcs(srcs)
@@ -86,8 +85,7 @@ class PackageTarget(Target):
             elif isinstance(s, str):
                 src, dst = s, ''
             else:
-                console.error_exit('%s: Invalid src %s. src should '
-                                   'be either str or tuple.' % (self.fullname, s))
+                self.error_exit('Invalid src %s. src should be either str or tuple.' % s)
 
             m = location_re.search(src)
             if m:
@@ -105,8 +103,7 @@ class PackageTarget(Target):
         Return src full path within the workspace and mapping path in the archive.
         """
         if '..' in src or '..' in dst:
-            console.error_exit('%s: Invalid src (%s, %s). Relative path is not allowed.'
-                               % (self.fullname, src, dst))
+            self.error_exit('Invalid src (%s, %s). Relative path is not allowed.' % (src, dst))
         elif src.startswith('//'):
             src = src[2:]
             path = src
@@ -121,8 +118,7 @@ class PackageTarget(Target):
         """Add regular file or directory. """
         src, dst = self._get_source_path(src, dst)
         if not os.path.exists(src):
-            console.error_exit('%s: Package source %s does not exist.' % (
-                               self.fullname, src))
+            self.error_exit('Package source %s does not exist.' % src)
         elif os.path.isfile(src):
             self.data['sources'].append((src, dst))
         else:
@@ -152,8 +148,7 @@ class PackageTarget(Target):
             target = targets[key]
             target_var = target._get_target_var(type)
             if not target_var:
-                console.warning('%s: Location %s %s is missing. Ignored.' %
-                                (self.fullname, key, type))
+                self.warning('Location %s %s is missing. Ignored.' % (key, type))
                 continue
 
             if dst:
@@ -177,8 +172,8 @@ class PackageTarget(Target):
         self._generate_source_rules(source_vars, package_path_list, sources_dir)
         self._generate_location_reference_rules(location_vars, sources_dir)
         self._write_rule('%s = %s.Package(target="%s", source=[%s] + [%s])' % (
-                         var_name, env_name, target,
-                         ','.join(source_vars), ','.join(sorted(location_vars))))
+            var_name, env_name, target,
+            ','.join(source_vars), ','.join(sorted(location_vars))))
         package_type = self.data['type']
         self._write_rule('%s.Append(PACKAGESUFFIX="%s")' % (env_name, package_type))
 
@@ -200,8 +195,7 @@ class PackageTarget(Target):
         for key, type, dst in self.data['locations']:
             path = targets[key]._get_target_file(type)
             if not path:
-                console.warning('%s: Location %s %s is missing. Ignored.' %
-                                (self.fullname, key, type))
+                self.warning('Location %s %s is missing. Ignored.' % (key, type))
                 continue
             if not dst:
                 dst = os.path.basename(path)
@@ -210,8 +204,8 @@ class PackageTarget(Target):
 
         output = self._target_file_path(self.data['out'])
         if not self.data['shell']:
-            self.ninja_build(output, 'package', inputs=inputs,
-                             variables={'entries' : ' '.join(entries)})
+            self.ninja_build('package', output, inputs=inputs,
+                             variables={'entries': ' '.join(entries)})
         else:
             self.ninja_package_in_shell(output, inputs, entries)
 
@@ -236,17 +230,17 @@ class PackageTarget(Target):
         package_sources = []
         for src, dst in zip(inputs, entries):
             dst = os.path.join(packageroot, dst)
-            self.ninja_build(dst, 'copy', inputs=src)
+            self.ninja_build('copy', dst, inputs=src)
             package_sources.append(dst)
         vars = {
-            'entries' : ' '.join(entries),
-            'packageroot' : packageroot,
+            'entries': ' '.join(entries),
+            'packageroot': packageroot,
         }
         type = self.data['type']
         rule = self.ninja_rule_from_package_type(type)
         if type != 'zip':
             vars['tarflags'] = self.tar_flags(type)
-        self.ninja_build(output, rule, inputs=package_sources, variables=vars)
+        self.ninja_build(rule, output, inputs=package_sources, variables=vars)
 
 
 def package(name,

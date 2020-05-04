@@ -11,22 +11,25 @@
 
 """
 
+from __future__ import absolute_import
 
-from collections import namedtuple
-import Queue
 import signal
 import subprocess
 import threading
 import time
 import traceback
+from collections import namedtuple
 
-import blade_util
-import config
-import console
+try:
+    import queue
+except ImportError:
+    import Queue as queue
 
+from blade import blade_util
+from blade import config
+from blade import console
 
 TestRunResult = namedtuple('TestRunResult', ['exit_code', 'start_time', 'cost_time'])
-
 
 # dict{-signo : signame}
 _SIGNAL_MAP = dict([
@@ -81,11 +84,11 @@ class WorkerThread(threading.Thread):
         try:
             self.job_lock.acquire()
             if (not self.job_is_timeout and self.job_start_time and
-                self.job_timeout is not None and
-                self.job_name and self.job_process is not None):
+                    self.job_timeout is not None and
+                    self.job_name and self.job_process is not None):
                 if self.job_start_time + self.job_timeout < now:
                     self.job_is_timeout = True
-                    console.error('%s: TIMEOUT\n' % self.job_name)
+                    console.error('//%s: TIMEOUT\n' % self.job_name)
                     self.job_process.terminate()
         finally:
             self.job_lock.release()
@@ -98,7 +101,7 @@ class WorkerThread(threading.Thread):
                 while not job_queue.empty() and self.running:
                     try:
                         job = job_queue.get_nowait()
-                    except Queue.Empty:
+                    except queue.Empty:
                         continue
                     self.job_start_time = time.time()
                     self.job_handler(job, self.redirect, self)
@@ -118,13 +121,14 @@ _MAX_WORKER_THREADS = 16
 
 class TestScheduler(object):
     """TestScheduler. """
+
     def __init__(self, tests_list, num_jobs):
         """init method. """
         self.tests_list = tests_list
         self.num_jobs = num_jobs
 
-        self.job_queue = Queue.Queue(0)
-        self.exclusive_job_queue = Queue.Queue(0)
+        self.job_queue = queue.Queue(0)
+        self.exclusive_job_queue = queue.Queue(0)
 
         self.run_result_lock = threading.Lock()
         # dict{key, {}}
@@ -152,6 +156,11 @@ class TestScheduler(object):
             result = '%s:%s' % (result, returncode)
         return result
 
+    def _show_progress(self, cmd):
+        console.info('[%s/%s] Running %s' % (self.num_of_ran_tests, len(self.tests_list), cmd))
+        if console.verbosity_le('quiet'):
+            console.show_progress_bar(self.num_of_ran_tests, len(self.tests_list))
+
     def _run_job_redirect(self, job, job_thread):
         """run job and redirect the output. """
         target, run_dir, test_env, cmd = job
@@ -160,7 +169,7 @@ class TestScheduler(object):
         if shell:
             cmd = subprocess.list2cmdline(cmd)
         timeout = target.data.get('test_timeout')
-        console.info('[%s/%s] Running %s' % (self.num_of_ran_tests, len(self.tests_list), cmd))
+        self._show_progress(cmd)
         p = subprocess.Popen(cmd,
                              env=test_env,
                              cwd=run_dir,
@@ -171,8 +180,8 @@ class TestScheduler(object):
         job_thread.set_job_data(p, test_name, timeout)
         stdout = p.communicate()[0]
         result = self._get_result(p.returncode)
-        msg = 'Output of %s:\n%s\n%s finished: %s\n' % (
-                test_name, stdout, test_name, result)
+        msg = 'Output of //%s:\n%s\n//%s finished: %s\n' % (
+            test_name, stdout, test_name, result)
         if console.verbosity_le('quiet') and p.returncode != 0:
             console.error(msg, prefix=False)
         else:
@@ -189,12 +198,12 @@ class TestScheduler(object):
         if shell:
             cmd = subprocess.list2cmdline(cmd)
         timeout = target.data.get('test_timeout')
-        console.info('[%s/%s] Running %s' % (self.num_of_ran_tests, len(self.tests_list), cmd))
+        self._show_progress(cmd)
         p = subprocess.Popen(cmd, env=test_env, cwd=run_dir, close_fds=True, shell=shell)
         job_thread.set_job_data(p, test_name, timeout)
         p.wait()
         result = self._get_result(p.returncode)
-        console.info('%s finished : %s\n' % (test_name, result))
+        console.info('//%s finished : %s\n' % (test_name, result))
 
         return p.returncode
 
@@ -212,15 +221,14 @@ class TestScheduler(object):
                 returncode = self._run_job_redirect(job, job_thread)
             else:
                 returncode = self._run_job(job, job_thread)
-        except OSError, e:
-            console.error('%s: Create test process error: %s' %
-                          (target.fullname, str(e)))
+        except OSError as e:
+            console.error('//%s: Create test process error: %s' % (target.fullname, str(e)))
             returncode = 255
 
         cost_time = time.time() - start_time
 
         run_result = TestRunResult(exit_code=returncode,
-                start_time=start_time, cost_time=cost_time)
+                                   start_time=start_time, cost_time=cost_time)
 
         with self.run_result_lock:
             if returncode == 0:

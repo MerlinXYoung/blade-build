@@ -12,8 +12,8 @@ from __future__ import absolute_import
 import os
 
 from blade import build_manager
-from blade import console
 from blade import build_rules
+from blade import console
 from blade.cc_targets import CcTarget
 
 
@@ -23,6 +23,7 @@ class SwigLibrary(CcTarget):
     This class is derived from SconsCCTarget.
 
     """
+
     def __init__(self,
                  name,
                  srcs,
@@ -57,8 +58,8 @@ class SwigLibrary(CcTarget):
         self.data['python_vars'] = []
         self.data['python_sources'] = []
 
-        scons_platform = self.blade.get_scons_platform()
-        self.php_inc_list = scons_platform.get_php_include()
+        build_platform = self.blade.get_build_platform()
+        self.php_inc_list = build_platform.get_php_include()
         self.options = self.blade.get_options()
 
     def _expand_deps_generation(self):
@@ -122,11 +123,11 @@ class SwigLibrary(CcTarget):
         for src in self.srcs:
             pyswig_src = self._pyswig_gen_file(self.path, src)
             self._write_rule('%s.SwigPython(["%s"], "%s")' % (
-                    env_name,
-                    pyswig_src,
-                    os.path.join(self.path, src)))
+                env_name,
+                pyswig_src,
+                os.path.join(self.path, src)))
             self.data['python_sources'].append(
-                    self._pyswig_gen_python_file(self.path, src))
+                self._pyswig_gen_python_file(self.path, src))
             obj_name_py = '%s_object' % self._var_name_of(src, 'python')
             obj_names_py.append(obj_name_py)
 
@@ -138,11 +139,11 @@ class SwigLibrary(CcTarget):
                                   pyswig_src))
             self.data['python_vars'].append(obj_name_py)
             dep_files = self._swig_extract_dependency_files(
-                                os.path.join(self.path, src))
+                os.path.join(self.path, src))
             self._write_rule('%s.Depends("%s", %s)' % (
-                             env_name,
-                             pyswig_src,
-                             dep_files))
+                env_name,
+                pyswig_src,
+                dep_files))
             dep_files_map[os.path.join(self.path, src)] = dep_files
 
         objs_name = self._objs_name()
@@ -160,15 +161,15 @@ class SwigLibrary(CcTarget):
          whole_link_flags) = self._get_static_deps_lib_list()
         if whole_link_flags:
             self._write_rule(
-                    '%s.Append(LINKFLAGS=[%s])' % (env_name, whole_link_flags))
+                '%s.Append(LINKFLAGS=[%s])' % (env_name, whole_link_flags))
 
         if self.srcs or self.expanded_deps:
             self._write_rule('%s = %s.SharedLibrary("%s", %s, %s, SHLIBPREFIX = "")'
-                    % (var_name,
-                       env_name,
-                       target_path_py,
-                       objs_name_py,
-                       lib_str))
+                             % (var_name,
+                                env_name,
+                                target_path_py,
+                                objs_name_py,
+                                lib_str))
             self.data['python_sources'].append('%s.so' % target_path_py)
             self.data['python_vars'].append(var_name)
 
@@ -214,16 +215,16 @@ class SwigLibrary(CcTarget):
                     if not os.path.exists(out_dir):
                         depend_outdir = True
                         self._write_rule('%s = %s.Command("%s", "", [Mkdir("%s")])' % (
-                                swig_outdir_cmd,
-                                env_name,
-                                out_dir_dummy,
-                                out_dir))
+                            swig_outdir_cmd,
+                            env_name,
+                            out_dir_dummy,
+                            out_dir))
                         self.data['java_dep_var'].append(swig_outdir_cmd)
                     if build_jar:
                         self.data['java_sources'] = (
-                                out_dir,
-                                os.path.join(self.build_path, self.path),
-                                self.name)
+                            out_dir,
+                            os.path.join(self.build_path, self.path),
+                            self.name)
 
         self._write_rule('%s.Append(SWIGJAVAFLAGS="%s")' % (env_name, javaswig_flags))
         self._swig_library_rules_java_helper(depend_outdir, build_jar,
@@ -242,12 +243,11 @@ class SwigLibrary(CcTarget):
         depend_outdir = dep_outdir
         build_jar = java_build_jar
         java_lib_packed = lib_packed
-        env_name = self._env_name()
         out_dir_dummy = os.path.join(out_dir, 'dummy_file')
         obj_names_java = []
 
-        scons_platform = self.blade.get_scons_platform()
-        java_includes = scons_platform.get_java_include()
+        build_platform = self.blade.get_build_platform()
+        java_includes = build_platform.get_java_include()
         if java_includes:
             self._write_rule('%s.Append(CPPPATH=%s)' % (env_name, java_includes))
 
@@ -256,30 +256,30 @@ class SwigLibrary(CcTarget):
             javaswig_src = self._javaswig_gen_file(self.path, src)
             src_basename = os.path.basename(src)
             javaswig_var = '%s_%s' % (
-                    var_name, self._regular_variable_name(src_basename))
+                var_name, self._regular_variable_name(src_basename))
             self._write_rule('%s = %s.SwigJava(["%s"], "%s")' % (
-                    javaswig_var,
-                    env_name,
-                    javaswig_src,
-                    os.path.join(self.path, src)))
+                javaswig_var,
+                env_name,
+                javaswig_src,
+                os.path.join(self.path, src)))
             self.data['java_sources_explict_dependency'].append(javaswig_src)
             if depend_outdir:
                 self._write_rule('%s.Depends(%s, "%s")' % (
-                        env_name,
-                        javaswig_var,
-                        out_dir_dummy))
+                    env_name,
+                    javaswig_var,
+                    out_dir_dummy))
             self.data['java_dep_var'].append(javaswig_var)
 
             obj_name_java = '%s_object' % self._var_name_of(src, 'dynamic_java')
             obj_names_java.append(obj_name_java)
 
             self._write_rule(
-                    '%s = %s.SharedObject(target="%s" + top_env["OBJSUFFIX"], '
-                    'source="%s")' % (
-                            obj_name_java,
-                            env_name,
-                            javaswig_src,
-                            javaswig_src))
+                '%s = %s.SharedObject(target="%s" + top_env["OBJSUFFIX"], '
+                'source="%s")' % (
+                    obj_name_java,
+                    env_name,
+                    javaswig_src,
+                    javaswig_src))
 
             dep_key = os.path.join(self.path, src)
             if dep_key in dep_files_map:
@@ -287,9 +287,9 @@ class SwigLibrary(CcTarget):
             else:
                 dep_files = self._swig_extract_dependency_files(dep_key)
             self._write_rule('%s.Depends("%s", %s)' % (
-                             env_name,
-                             javaswig_src,
-                             dep_files))
+                env_name,
+                javaswig_src,
+                dep_files))
 
         objs_name = self._objs_name()
         objs_name_java = '%s_dynamic_java' % objs_name
@@ -304,11 +304,11 @@ class SwigLibrary(CcTarget):
 
         if self.srcs or self.expanded_deps:
             self._write_rule('%s = %s.SharedLibrary("%s", %s, %s)' % (
-                    var_name,
-                    env_name,
-                    target_path_java,
-                    objs_name_java,
-                    lib_str))
+                var_name,
+                env_name,
+                target_path_java,
+                objs_name_java,
+                lib_str))
 
         if link_all_symbols_lib_list:
             self._write_rule('%s.Depends(%s, [%s])' % (
@@ -319,7 +319,7 @@ class SwigLibrary(CcTarget):
             lib_name = os.path.basename(target_path_java)
             lib_name = 'lib%s.so' % lib_name
             self.data['jar_packing_file'] = (
-                    os.path.join(lib_dir, lib_name), self.name)
+                os.path.join(lib_dir, lib_name), self.name)
 
     def _swig_library_rules_php(self, dep_files_map):
         # pylint: disable=too-many-locals
@@ -345,9 +345,9 @@ class SwigLibrary(CcTarget):
         for src in self.srcs:
             phpswig_src = self._phpswig_gen_file(self.path, src)
             self._write_rule('%s.SwigPhp(["%s"], "%s")' % (
-                    env_name,
-                    phpswig_src,
-                    os.path.join(self.path, src)))
+                env_name,
+                phpswig_src,
+                os.path.join(self.path, src)))
             obj_name_php = '%s_object' % self._var_name_of(src, 'php')
             obj_names_php.append(obj_name_php)
 
@@ -364,9 +364,9 @@ class SwigLibrary(CcTarget):
             else:
                 dep_files = self._swig_extract_dependency_files(dep_key)
             self._write_rule('%s.Depends("%s", %s)' % (
-                             env_name,
-                             phpswig_src,
-                             dep_files))
+                env_name,
+                phpswig_src,
+                dep_files))
 
         objs_name = self._objs_name()
         objs_name_php = '%s_php' % objs_name
@@ -383,11 +383,11 @@ class SwigLibrary(CcTarget):
 
         if self.srcs or self.expanded_deps:
             self._write_rule('%s = %s.SharedLibrary("%s", %s, %s, SHLIBPREFIX="")' % (
-                    var_name,
-                    env_name,
-                    target_path_php,
-                    objs_name_php,
-                    lib_str))
+                var_name,
+                env_name,
+                target_path_php,
+                objs_name_php,
+                lib_str))
 
         if link_all_symbols_lib_list:
             self._write_rule('%s.Depends(%s, [%s])' % (
@@ -400,16 +400,13 @@ class SwigLibrary(CcTarget):
 
         """
         self._prepare_to_generate_rule()
-
-        dep_files_map = {}
         dep_files_map = self._swig_library_rules_py()
         if (getattr(self.options, 'generate_java', False) or
-            self.data.get('generate_java')):
+                self.data.get('generate_java')):
             self._swig_library_rules_java(dep_files_map)
         if getattr(self.options, 'generate_php', False):
             if not self.php_inc_list:
-                console.error_exit('failed to build //%s:%s, please install php modules' % (
-                           self.path, self.name))
+                self.error_exit('Swig php wrapper need php develop environment')
             else:
                 self._swig_library_rules_php(dep_files_map)
 

@@ -18,8 +18,8 @@ import os
 from blade import build_manager
 from blade import build_rules
 from blade import console
-from blade.blade_util import var_to_list
 from blade.blade_util import location_re
+from blade.blade_util import var_to_list
 from blade.target import Target
 
 
@@ -29,6 +29,7 @@ class GenRuleTarget(Target):
     This class is derived from Target.
 
     """
+
     def __init__(self,
                  name,
                  srcs,
@@ -62,18 +63,13 @@ class GenRuleTarget(Target):
     def _srcs_list(self, path, srcs):
         """Returns srcs list. """
         return ','.join(['"%s"' % os.path.join(self.build_path, path, src)
-            for src in srcs])
+                         for src in srcs])
 
     def _process_location_reference(self, m):
         """Process target location reference in the command. """
         key, type = self._add_location_reference_target(m)
         self.data['locations'].append((key, type))
         return '%s'
-
-    def _generate_header_files(self):
-        """Whether this target generates header files during building."""
-        # Be conservative: Assume gen_rule always generates header files.
-        return True
 
     def _allow_duplicate_source(self):
         return True
@@ -112,19 +108,18 @@ class GenRuleTarget(Target):
             for key, type in locations:
                 target_var = targets[key]._get_target_var(type)
                 if not target_var:
-                    console.error_exit('%s: Invalid location reference %s %s' %
-                            (self.fullname, ':'.join(key), type))
+                    self.error_exit('Invalid location reference %s %s' % ':'.join(key), type)
                 target_vars.append(target_var)
             cmd = '"%s" %% (%s)' % (cmd, ','.join(['str(%s[0])' % v for v in target_vars]))
         else:
             cmd = '"%s"' % cmd
         self._write_rule('%s = %s.Command([%s], [%s], '
                          '[%s, "@ls $TARGETS > /dev/null"])' % (
-                         var_name,
-                         env_name,
-                         self._srcs_list(self.path, self.data['outs']),
-                         srcs_str,
-                         cmd))
+                             var_name,
+                             env_name,
+                             self._srcs_list(self.path, self.data['outs']),
+                             srcs_str,
+                             cmd))
         for i in range(len(self.data['outs'])):
             self._add_target_var('%s' % i, '%s[%s]' % (var_name, i))
         self.data['generated_hdrs'] = [self._target_file_path(o) for o in self.data['outs']
@@ -165,8 +160,7 @@ class GenRuleTarget(Target):
             for key, label in locations:
                 path = targets[key]._get_target_file(label)
                 if not path:
-                    console.error_exit('%s: Invalid location reference %s %s' %
-                                       (self.fullname, ':'.join(key), label))
+                    self.error_exit('Invalid location reference %s %s' % (':'.join(key), label))
                 locations_paths.append(path)
             cmd = cmd % tuple(locations_paths)
         return cmd
@@ -180,7 +174,7 @@ class GenRuleTarget(Target):
 
     def ninja_rules(self):
         rule = '%s__rule__' % self._regular_variable_name(
-                              self._source_file_path(self.name))
+            self._source_file_path(self.name))
         cmd = self.ninja_command()
         description = console.colored('COMMAND //' + self.fullname, 'dimpurple')
         self._write_rule('''rule %s
@@ -194,7 +188,7 @@ class GenRuleTarget(Target):
             vars['_in_1'] = inputs[0]
         if '${_out_1}' in cmd:
             vars['_out_1'] = outputs[0]
-        self.ninja_build(outputs, rule, inputs=inputs,
+        self.ninja_build(rule, outputs, inputs=inputs,
                          implicit_deps=self.implicit_dependencies(),
                          variables=vars)
         for i, out in enumerate(outputs):

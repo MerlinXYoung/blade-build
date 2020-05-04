@@ -10,19 +10,19 @@
 
 """
 
+from __future__ import absolute_import
+from __future__ import print_function
 
-import glob
-import math
 import os
 import subprocess
-import time
 
-import console
+from blade import console
 
 
 class BuildEnvironment(object):
     """Managers ccache, distcc. """
-    def __init__(self, blade_root_dir, distcc_hosts_list=None):
+
+    def __init__(self, blade_root_dir, distcc_host_list=None):
         # ccache
         self.blade_root_dir = blade_root_dir
         self.ccache_installed = self._check_ccache_install()
@@ -30,18 +30,13 @@ class BuildEnvironment(object):
         # distcc
         self.distcc_env_prepared = False
         self.distcc_installed = self._check_distcc_install()
-        if distcc_hosts_list:
-            self.distcc_host_list = distcc_hosts_list
-        else:
-            self.distcc_host_list = os.environ.get('DISTCC_HOSTS', '')
+        self.distcc_host_list = distcc_host_list or os.environ.get('DISTCC_HOSTS', '')
         if self.distcc_installed and self.distcc_host_list:
             self.distcc_env_prepared = True
-        if self.distcc_installed and not self.distcc_host_list:
-            console.warning('DISTCC_HOSTS not set but you have '
-                            'distcc installed, will just build locally')
-        self.distcc_log_file = os.environ.get('DISTCC_LOG', '')
-        if self.distcc_log_file:
-            console.debug('distcc log: %s' % self.distcc_log_file)
+            console.info('distcc is enabled automatically due DISTCC_HOSTS set')
+            distcc_log_file = os.environ.get('DISTCC_LOG', '')
+            if distcc_log_file:
+                console.debug('distcc log: %s' % distcc_log_file)
 
         self.rules_buf = []
 
@@ -88,7 +83,6 @@ class BuildEnvironment(object):
             if version_line and version_line.find('distcc') != -1:
                 console.debug('distcc found')
                 return True
-
 
     def setup_build_cache(self, options):
         if self.ccache_installed:

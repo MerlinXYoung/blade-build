@@ -17,8 +17,8 @@ import os
 from blade import build_manager
 from blade import build_rules
 from blade import console
-from blade.blade_util import var_to_list
 from blade.blade_util import location_re
+from blade.blade_util import var_to_list
 from blade.target import Target
 
 
@@ -34,6 +34,7 @@ class ShellTest(Target):
     syntax.
 
     """
+
     def __init__(self,
                  name,
                  srcs,
@@ -67,8 +68,7 @@ class ShellTest(Target):
             elif isinstance(td, str):
                 src, dst = td, ''
             else:
-                console.error_exit('%s: Invalid testdata %s. Test data should '
-                                   'be either str or tuple.' % (self.fullname, td))
+                self.error_exit('Invalid testdata %s. Test data should be either str or tuple.' % td)
 
             m = location_re.search(src)
             if m:
@@ -87,17 +87,16 @@ class ShellTest(Target):
             target = targets[key]
             target_var = target._get_target_var(type)
             if not target_var:
-                console.warning('%s: Location %s %s is missing. Ignored.' %
-                                (self.fullname, key, type))
+                self.warning('Location %s %s is missing. Ignored.' % (key, type))
             else:
                 sources.append('%s, %s.Value("%s")' % (target_var, env_name, dst))
 
         if sources:
             self._write_rule('%s = %s.ShellTestData(target = "%s.testdata", '
                              'source = [%s])' % (
-                             var_name, env_name,
-                             self._target_file_path(),
-                             ', '.join(sources)))
+                                 var_name, env_name,
+                                 self._target_file_path(),
+                                 ', '.join(sources)))
 
     def scons_rules(self):
         self._clone_env()
@@ -106,22 +105,20 @@ class ShellTest(Target):
 
         srcs = [self._source_file_path(s) for s in self.srcs]
         self._write_rule('%s = %s.ShellTest(target = "%s", source = %s)' % (
-                         var_name, env_name,
-                         self._target_file_path(), srcs))
+            var_name, env_name,
+            self._target_file_path(), srcs))
         self._generate_test_data_rules()
-
 
     def ninja_rules(self):
         srcs = [self._source_file_path(s) for s in self.srcs]
         output = self._target_file_path()
-        self.ninja_build(output, 'shelltest', inputs=srcs)
+        self.ninja_build('shelltest', output, inputs=srcs)
         targets = self.blade.get_build_targets()
         inputs, testdata = [], []
         for key, type, dst in self.data['locations']:
             path = targets[key]._get_target_file(type)
             if not path:
-                console.warning('%s: Location %s %s is missing. Ignored.' %
-                                (self.fullname, key, type))
+                self.warning('Location %s %s is missing. Ignored.' % (key, type))
             else:
                 inputs.append(path)
                 if not dst:
@@ -130,8 +127,8 @@ class ShellTest(Target):
                     testdata.append(dst)
         if inputs:
             output = '%s.testdata' % self._target_file_path()
-            self.ninja_build(output, 'shelltestdata', inputs=inputs,
-                             variables={'testdata' : ' '.join(testdata)})
+            self.ninja_build('shelltestdata', output, inputs=inputs,
+                             variables={'testdata': ' '.join(testdata)})
 
 
 def sh_test(name,
@@ -140,10 +137,10 @@ def sh_test(name,
             testdata=[],
             **kwargs):
     build_manager.instance.register_target(ShellTest(name,
-                                          srcs,
-                                          deps,
-                                          testdata,
-                                          kwargs))
+                                                     srcs,
+                                                     deps,
+                                                     testdata,
+                                                     kwargs))
 
 
 build_rules.register_function(sh_test)

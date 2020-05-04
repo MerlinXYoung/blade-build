@@ -8,15 +8,15 @@
 Implement scala_library, scala_fat_library and scala_test
 """
 
+from __future__ import absolute_import
 
-import blade
-import build_rules
-import config
-import console
-
-from target import Target
-from java_targets import JavaTargetMixIn
-from blade_util import var_to_list
+from blade import build_manager
+from blade import build_rules
+from blade import config
+from blade import console
+from blade.blade_util import var_to_list
+from blade.java_targets import JavaTargetMixIn
+from blade.target import Target
 
 
 class ScalaTarget(Target, JavaTargetMixIn):
@@ -25,6 +25,7 @@ class ScalaTarget(Target, JavaTargetMixIn):
     This class is the base of all scala targets.
 
     """
+
     def __init__(self,
                  name,
                  type,
@@ -132,15 +133,13 @@ class ScalaTarget(Target, JavaTargetMixIn):
         if srcs and resources:
             classes_jar = self._target_file_path() + '__classes__.jar'
             scalacflags = self.scalac_flags()
-            self.ninja_build_jar(classes_jar, inputs=srcs,
-                                 scala=True, scalacflags=scalacflags)
-            self.ninja_build(jar, 'javajar', inputs=[classes_jar] + resources)
+            self.ninja_build_jar(classes_jar, inputs=srcs, scala=True, scalacflags=scalacflags)
+            self.ninja_build('javajar', jar, inputs=[classes_jar] + resources)
         elif srcs:
             scalacflags = self.scalac_flags()
-            self.ninja_build_jar(jar, inputs=srcs,
-                                 scala=True, scalacflags=scalacflags)
+            self.ninja_build_jar(jar, inputs=srcs, scala=True, scalacflags=scalacflags)
         elif resources:
-            self.ninja_build(jar, 'javajar', inputs=resources)
+            self.ninja_build('javajar', jar, inputs=resources)
         else:
             jar = ''
         if jar:
@@ -150,6 +149,7 @@ class ScalaTarget(Target, JavaTargetMixIn):
 
 class ScalaLibrary(ScalaTarget):
     """ScalaLibrary"""
+
     def __init__(self, name, srcs, deps, resources, source_encoding, warnings,
                  exported_deps, provided_deps, kwargs):
         exported_deps = var_to_list(exported_deps)
@@ -174,6 +174,7 @@ class ScalaLibrary(ScalaTarget):
 
 class ScalaFatLibrary(ScalaTarget):
     """ScalaFatLibrary"""
+
     def __init__(self, name, srcs, deps, resources, source_encoding, warnings,
                  exclusions, kwargs):
         ScalaTarget.__init__(self, name, 'scala_fat_library', srcs, deps,
@@ -196,10 +197,11 @@ class ScalaFatLibrary(ScalaTarget):
 
 class ScalaTest(ScalaFatLibrary):
     """ScalaTest"""
-    def __init__(self, name, srcs, deps, resources, source_encoding, warnings,
-                 testdata, kwargs):
+
+    def __init__(self, name, srcs, deps, resources, source_encoding,
+                 warnings, exclusions, testdata, kwargs):
         ScalaFatLibrary.__init__(self, name, srcs, deps, resources, source_encoding,
-                                 warnings, [], kwargs)
+                                 warnings, exclusions, kwargs)
         self.type = 'scala_test'
         self.data['testdata'] = var_to_list(testdata)
         scalatest_libs = config.get_item('scala_test_config', 'scalatest_libs')
@@ -220,18 +222,17 @@ class ScalaTest(ScalaFatLibrary):
         if jar_var:
             self._write_rule('%s = %s.ScalaTest(target="%s", '
                              'source=[%s] + [%s] + %s)' % (
-                    var_name, self._env_name(), self._target_file_path(),
-                    jar_var, ','.join(dep_jar_vars), dep_jars))
+                                 var_name, self._env_name(), self._target_file_path(),
+                                 jar_var, ','.join(dep_jar_vars), dep_jars))
 
     def ninja_rules(self):
         if not self.srcs:
-            console.warning('%s: Empty scala test sources.' % self.fullname)
+            self.warning('Empty scala test sources.')
             return
         jar = self.ninja_generate_jar()
         output = self._target_file_path()
         dep_jars, maven_jars = self._get_test_deps()
-        self.ninja_build(output, 'scalatest',
-                         inputs=[jar] + dep_jars + maven_jars)
+        self.ninja_build('scalatest', output, inputs=[jar] + dep_jars + maven_jars)
 
 
 def scala_library(name,
@@ -282,6 +283,7 @@ def scala_test(name,
                resources=[],
                source_encoding=None,
                warnings=None,
+               exclusions=[],
                testdata=[],
                **kwargs):
     """Define scala_test target. """
@@ -291,6 +293,7 @@ def scala_test(name,
                        resources,
                        source_encoding,
                        warnings,
+                       exclusions,
                        testdata,
                        kwargs)
     build_manager.instance.register_target(target)

@@ -1,3 +1,8 @@
 .idea
 .vscode
 *.pyc
+.DS_Store
+/blade.zip
+/blade-bin
+/.Building.lock
+/build*_*

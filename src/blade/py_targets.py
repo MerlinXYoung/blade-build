@@ -27,6 +27,7 @@ class PythonTarget(Target):
     """python target base class.
 
     """
+
     def __init__(self,
                  name,
                  type,
@@ -50,9 +51,8 @@ class PythonTarget(Target):
 
         if base:
             if not base.startswith('//'):
-                console.error_exit('%s: Invalid base directory %s. Option base should '
-                                   'be a directory starting with \'//\' from BLADE_ROOT directory.' %
-                                   (self.fullname, base))
+                self.error_exit('Invalid base directory %s. Option base should be a directory '
+                                'starting with \'//\' from BLADE_ROOT directory.' % base)
             self.data['python_base'] = base[2:]
         self.data['python_sources'] = [self._source_file_path(s) for s in srcs]
 
@@ -84,6 +84,7 @@ class PythonLibrary(PythonTarget):
     This class is derived from SconsTarget and generates python library package.
 
     """
+
     def __init__(self,
                  name,
                  srcs,
@@ -109,9 +110,9 @@ class PythonLibrary(PythonTarget):
         if not sources:
             return ''
         self._write_rule('%s = %s.PythonLibrary("%s", %s)' % (
-                         var_name, env_name,
-                         '%s.pylib' % self._target_file_path(),
-                         sources))
+            var_name, env_name,
+            '%s.pylib' % self._target_file_path(),
+            sources))
         self.data['python_var'] = var_name
         dep_var_list = []
         targets = self.blade.get_build_targets()
@@ -122,7 +123,7 @@ class PythonLibrary(PythonTarget):
 
         for dep_var in dep_var_list:
             self._write_rule('%s.Depends(%s, %s)' % (
-                             env_name, var_name, dep_var))
+                env_name, var_name, dep_var))
         return var_name
 
     def scons_rules(self):
@@ -135,7 +136,7 @@ class PythonLibrary(PythonTarget):
         output = self._target_file_path() + '.pylib'
         inputs = [self._source_file_path(s) for s in self.srcs]
         vars = self.ninja_vars()
-        self.ninja_build(output, 'pythonlibrary', inputs=inputs, variables=vars)
+        self.ninja_build('pythonlibrary', output, inputs=inputs, variables=vars)
         self._add_target_file('pylib', output)
         return output
 
@@ -161,11 +162,9 @@ class PrebuiltPythonLibrary(PythonTarget):
                               visibility,
                               kwargs)
         if base:
-            console.error_exit("%s: Prebuilt py_library doesn't support base" %
-                               self.fullname)
+            self.error_exit("Prebuilt py_library doesn't support base")
         if len(self.srcs) != 1:
-            console.error_exit('%s: There can only be 1 file in prebuilt py_library' %
-                               self.fullname)
+            self.error_exit('There can only be 1 file in prebuilt py_library')
         src = self.srcs[0]
         if not src.endswith('.egg') and not src.endswith('.whl'):
             console.error_exit(
@@ -178,8 +177,8 @@ class PrebuiltPythonLibrary(PythonTarget):
         var_name = self._var_name('pylib')
 
         self._write_rule('%s = %s.File("%s")' % (
-                         var_name, env_name,
-                         self._source_file_path(self.srcs[0])))
+            var_name, env_name,
+            self._source_file_path(self.srcs[0])))
         self.data['python_var'] = var_name
 
     def ninja_rules(self):
@@ -222,6 +221,7 @@ class PythonBinary(PythonLibrary):
     This class is derived from SconsTarget and generates python binary package.
 
     """
+
     def __init__(self,
                  name,
                  srcs,
@@ -276,10 +276,10 @@ class PythonBinary(PythonLibrary):
                 dep_var_list.append(python_var)
 
         self._write_rule('%s = %s.PythonBinary("%s", [%s])' % (
-                         var_name,
-                         env_name,
-                         self._target_file_path(),
-                         ','.join(dep_var_list)))
+            var_name,
+            env_name,
+            self._target_file_path(),
+            ','.join(dep_var_list)))
 
     def ninja_rules(self):
         output = self._target_file_path()
@@ -294,7 +294,7 @@ class PythonBinary(PythonLibrary):
             # TODO(wentingli): Add other dependencies if needed
         vars = self.ninja_vars()
         vars['mainentry'] = self._get_entry()
-        self.ninja_build(output, 'pythonbinary', inputs=inputs, variables=vars)
+        self.ninja_build('pythonbinary', output, inputs=inputs, variables=vars)
         self._add_default_target_file('bin', output)
 
 
@@ -323,6 +323,7 @@ class PythonTest(PythonBinary):
     This class is derived from SconsTarget and generates python test.
 
     """
+
     def __init__(self,
                  name,
                  srcs,
